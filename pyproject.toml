@@ -1,0 +1,50 @@
+[project]
+name = "cta2045-proxy"
+version = "0.1.0"
+description = "Proxy a CTA-2045 (EcoPort) Smart Grid Device onto the Electrification Bus (eBus / Homie 5), via a pluggable UCM backend"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    {name = "Clark Communications Corporation"}
+]
+keywords = ["cta-2045", "cta2045", "ecoport", "ucm", "demand-response", "water-heater", "ebus", "homie", "proxy"]
+dependencies = [
+    "cta2045>=0.1.0",
+    "ebus-sdk>=0.9.0",
+    "ebus-mqtt-client>=0.1.4",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+# The future native UCM backend (cta2045_proxy.ucm.native) drives the CTA-2045
+# RS485 link layer directly (no vendor dongle). It is blocked on cta2045.link
+# being implemented upstream; the serial extra is declared here so the backend
+# selector can advertise it once that lands.
+native = ["pyserial>=3.5"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+cta2045-proxy = "cta2045_proxy.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# E402: module-level import not at top-of-file. The house pattern is a module
+# docstring, then `from __future__ import annotations`, then imports; ignored
+# for consistency with the sibling eBus repos (python-sdk, ekm-proxy).
+ignore = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

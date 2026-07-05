@@ -1,0 +1,21 @@
+# cta2045-proxy example config. Copy to config/config.toml.
+# Secrets (passwords) come from environment variables, never this file.
+
+[ucm]
+kind = "skycentrics"   # skycentrics | native (native = reserved, needs cta2045.link)
+
+[ucm.skycentrics]
+# The SkyCentrics Ethernet UCM connects directly to the SAME local broker as
+# [ebus] below (there is NO SkyCentrics cloud broker). It publishes/subscribes
+# on devices/{MAC}/... topics. Leave host unset to reuse the [ebus] connection;
+# set host/port/username here only if the UCM talks to a different broker.
+client_id = "cta2045-proxy-ucm"
+# host = "localhost"
+# port = 1883
+# username = "${UCM_MQTT_USER}"   # password via EBUS_MQTT_PASS
+
+[ebus]                             # where translated eBus/Homie 5 devices publish
+host = "${EBUS_MQTT_HOST}"         # e.g. localhost, or the panel's ebus-mosquitto
+port = 1883
+username = "${EBUS_MQTT_USER}"     # optional; password via EBUS_MQTT_PASS
+client_id = "cta2045-proxy"        # this client's id on the eBus broker

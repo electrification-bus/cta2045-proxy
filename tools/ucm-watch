@@ -1,0 +1,81 @@
+#!/bin/bash
+#
+# Watch live MQTT traffic to/from a specific SkyCentrics UCM on a broker. The
+# fastest way to confirm the UCM is actually connected and exchanging data: if
+# lines stream by, the UCM is alive on the broker. If nothing appears for ~30+
+# seconds, the UCM is either not connected, not publishing, or publishing under
+# an unexpected topic.
+#
+# Subscribes to the UCM's raw device topics:
+#
+#   devices/<MAC>/#     The SkyCentrics UCM publishes telemetry (/data, /devinfo)
+#                       here, and consumers publish control commands to
+#                       devices/<MAC>/ctl/... . This is what cta2045-proxy reads.
+#
+# To instead watch the proxy's translated eBus/Homie output, subscribe to
+# ebus/5/<MAC>/# (e.g. with `mosquitto_sub -t 'ebus/5/#' -v`).
+#
+# Usage:
+#   ./ucm-watch --mac <12hex> [--broker-host <host>] [--broker-port <port>]
+#
+# Required:
+#   --mac <12hex>          UCM MAC, no separators (e.g. 84FEDC538C72). Find it
+#                          with `ucm-discover`.
+# Options:
+#   --broker-host <host>   Broker to watch. Default: localhost.
+#   --broker-port <port>   Broker port. Default: 1883.
+#   --help                 Show this usage.
+#
+# Ctrl-C to stop.
+#
+# Exit codes:
+#   0  Clean exit (Ctrl-C or broker disconnect).
+#   1  Bad arg or missing/invalid --mac.
+#   2  mosquitto_sub not available on this system.
+#
+
+set -euo pipefail
+
+BROKER_HOST="localhost"
+BROKER_PORT="1883"
+MAC=""
+
+usage() {
+    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mac)         MAC="${2:-}"; shift 2 ;;
+        --broker-host) BROKER_HOST="${2:-}"; shift 2 ;;
+        --broker-port) BROKER_PORT="${2:-}"; shift 2 ;;
+        --help|-h)     usage ;;
+        *)             echo "Unknown arg: $1 (try --help)" >&2; exit 1 ;;
+    esac
+done
+
+command -v mosquitto_sub >/dev/null || {
+    echo "FAIL: mosquitto_sub not found in PATH (install mosquitto-clients)." >&2
+    exit 2
+}
+
+MAC_UPPER=$(echo "$MAC" | tr -d ':-' | tr '[:lower:]' '[:upper:]')
+if [[ ! $MAC_UPPER =~ ^[0-9A-F]{12}$ ]]; then
+    echo "FAIL: --mac '$MAC' must be 12 hex chars (no separators). Try ucm-discover." >&2
+    exit 1
+fi
+
+cat <<EOF
+Watching MQTT traffic for UCM $MAC_UPPER on $BROKER_HOST:$BROKER_PORT
+Subscribed topic:
+  devices/$MAC_UPPER/#
+
+Output format: <ISO timestamp>  <topic>  <payload>
+Press Ctrl-C to stop.
+
+EOF
+
+exec mosquitto_sub -h "$BROKER_HOST" -p "$BROKER_PORT" \
+    -t "devices/$MAC_UPPER/#" \
+    -F '%I  %t  %p'

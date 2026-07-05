@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.env
+config/config.toml
+.pytest_cache/
+.DS_Store
+# Local symlink to private dev notes and demo creds; never published.
+notes

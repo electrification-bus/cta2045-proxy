@@ -1,0 +1,21 @@
+[Unit]
+Description=cta2045-proxy (CTA-2045 UCM -> eBus / Homie 5)
+# Reference unit. A downstream deployment ships its own unit that orders after
+# its local broker + broker-auth setup and points --config at its generated
+# config.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cta2045-proxy --config /etc/cta2045-proxy/config.toml
+Restart=always
+RestartSec=30
+# Secrets via the environment (EBUS_MQTT_PASS, ...); do not put them in config.
+# EnvironmentFile=/etc/cta2045-proxy/proxy.env
+SyslogIdentifier=cta2045-proxy
+StandardOutput=inherit
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

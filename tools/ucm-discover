@@ -1,0 +1,98 @@
+#!/bin/bash
+#
+# Discover SkyCentrics UCM(s) on the local network by scanning the ARP cache
+# for known SkyCentrics MAC OUIs (the first 3 bytes of the MAC identify the
+# manufacturer). Prints each match as: IP  MAC  description.
+#
+# Observed SkyCentrics OUIs:
+#   84:FE:DC   Ethernet UCM (US08C-series)
+#   20:F8:5E   WiFi UCM     (US02A-series)
+#
+# The ARP cache only lists hosts this machine has recently talked to. If your
+# UCM does not appear, prime the cache first by pinging across your subnet
+# (pass --sweep to do that automatically), then re-run.
+#
+# Usage:
+#   ./ucm-discover                 Scan the current ARP cache and report matches.
+#   ./ucm-discover --sweep         Ping-sweep the local /24(s) first to populate
+#                                  the ARP cache, then scan. Slower/noisier.
+#   ./ucm-discover --help          Show this usage.
+#
+# Exit codes:
+#   0  At least one SkyCentrics UCM found.
+#   1  No SkyCentrics UCM found in the ARP cache.
+#   2  Bad arg.
+#
+
+set -euo pipefail
+
+DO_SWEEP=NO
+
+usage() {
+    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --sweep)   DO_SWEEP=YES; shift ;;
+        --help|-h) usage ;;
+        *)         echo "Unknown arg: $1 (try --help)" >&2; exit 2 ;;
+    esac
+done
+
+# Human-readable description for a known SkyCentrics OUI; empty otherwise.
+# (Lowercase via tr, not ${1,,}, so this runs on macOS bash 3.2 as well as Linux.)
+identify_mac() {
+    local mac_lower
+    mac_lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    case "$mac_lower" in
+        84:fe:dc:*) echo "SkyCentrics Ethernet UCM (US08C-series, OUI 84:FE:DC)" ;;
+        20:f8:5e:*) echo "SkyCentrics WiFi UCM (US02A-series, OUI 20:F8:5E)" ;;
+        *)          echo "" ;;
+    esac
+}
+
+# Best-effort ping-sweep of every locally-attached IPv4 /24 to populate ARP.
+# Uses only tools present on both macOS and Linux.
+sweep() {
+    local nets
+    nets=$(
+        { ip -o -4 addr show 2>/dev/null || ifconfig 2>/dev/null; } \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | awk -F. '$1!=127 {print $1"."$2"."$3}' \
+        | sort -u
+    )
+    echo "Priming ARP cache (ping-sweep)..." >&2
+    local net i
+    for net in $nets; do
+        for i in $(seq 1 254); do
+            ping -c1 -W1 "${net}.${i}" >/dev/null 2>&1 &
+        done
+    done
+    wait 2>/dev/null || true
+}
+
+[[ $DO_SWEEP == YES ]] && sweep
+
+# Normalize `arp -a` output (macOS: "? (IP) at MAC ...", Linux: "host (IP) at MAC ...")
+# into "IP MAC" lines, then filter to known OUIs.
+found=0
+while read -r ip mac; do
+    [[ -z ${ip:-} || -z ${mac:-} ]] && continue
+    desc=$(identify_mac "$mac")
+    [[ -z $desc ]] && continue
+    mac_bare=$(echo "$mac" | tr -d ':' | tr '[:lower:]' '[:upper:]')
+    printf '%-16s %-14s %s\n' "$ip" "$mac_bare" "$desc"
+    found=$((found + 1))
+done < <(
+    arp -a 2>/dev/null \
+    | grep -oE '\(([0-9]{1,3}\.){3}[0-9]{1,3}\) at ([0-9a-fA-F]{1,2}:){5}[0-9a-fA-F]{1,2}' \
+    | sed -E 's/^\(//; s/\) at / /'
+)
+
+if [[ $found -eq 0 ]]; then
+    echo "No SkyCentrics UCM found in the ARP cache." >&2
+    [[ $DO_SWEEP == NO ]] && echo "Try again with --sweep to prime the cache first." >&2
+    exit 1
+fi

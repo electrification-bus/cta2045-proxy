@@ -1,0 +1,239 @@
+#!/bin/bash
+#
+# Configure a SkyCentrics Ethernet UCM (US08C) via its built-in web UI to
+# point at an MQTT broker. Eliminates the need to log into the UCM's web UI
+# manually for routine pairing.
+#
+# What it does:
+#   1. POST /save_mqtt_settings  with the broker's hostname/IP + port + creds
+#   2. (optional) POST /save_network_settings  if --static-ip was passed
+#   3. POST /trigger_reboot       so the new settings take effect
+#
+# Authentication: HTTP Basic, username "admin", password = the UCM's MAC
+# with no separators (e.g. 84FEDC538C72). The MAC is printed on a label on
+# the back of the UCM.
+#
+# Run it from anywhere that can reach the UCM on the LAN (a laptop, a server).
+#
+# Usage:
+#   ./ucm-configure --ucm-ip <IP> --ucm-mac <12HEX> --broker-host <name-or-ip> [options]
+#
+# Required:
+#   --ucm-ip <IP>              UCM's IP address (find it with `ucm-discover`, or
+#                              `arp -a` looking for OUI 84:fe:dc).
+#   --ucm-mac <12HEX>          UCM's MAC, no separators, e.g. 84FEDC538C72.
+#                              (Or pass --ucm-mac-auto to autodetect via arp.)
+#   --broker-host <name-or-ip> Hostname/IP of the MQTT broker the UCM should
+#                              connect to (an mDNS name or a LAN IP).
+#
+# Options:
+#   --broker-port <num>       MQTT broker port. Default: 1883.
+#   --mqtt-user <s>           MQTT username. Default: empty (anonymous).
+#   --mqtt-pass <s>           MQTT password. Default: empty.
+#   --static-ip <IP> --gateway <IP> --netmask <IP> --dns <IP>
+#                             Configure UCM with a static IP (all four
+#                             required together). Default behavior is DHCP.
+#   --no-reboot               Save settings but don't trigger the reboot.
+#   --dry-run                 Print the form data without POSTing anything.
+#   --help                    Show this usage.
+#
+# Exit codes:
+#   0  Success (settings saved, reboot triggered if applicable).
+#   1  Missing/bad arg, or HTTP error from the UCM.
+#   2  Could not authenticate (HTTP 401) — check --ucm-mac.
+#   3  Could not reach the UCM (network error / timeout).
+#
+
+set -euo pipefail
+
+UCM_IP=""
+UCM_MAC=""
+UCM_MAC_AUTO=NO
+BROKER_HOST=""
+BROKER_PORT="1883"
+MQTT_USER=""
+MQTT_PASS=""
+STATIC_IP=""
+GATEWAY=""
+NETMASK=""
+DNS=""
+NO_REBOOT=NO
+DRY_RUN=NO
+
+usage() {
+    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+}
+
+die() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --ucm-ip)        UCM_IP="${2:-}"; shift 2 ;;
+        --ucm-mac)       UCM_MAC="${2:-}"; shift 2 ;;
+        --ucm-mac-auto)  UCM_MAC_AUTO=YES; shift ;;
+        --broker-host)    BROKER_HOST="${2:-}"; shift 2 ;;
+        --broker-port)    BROKER_PORT="${2:-}"; shift 2 ;;
+        --mqtt-user)     MQTT_USER="${2:-}"; shift 2 ;;
+        --mqtt-pass)     MQTT_PASS="${2:-}"; shift 2 ;;
+        --static-ip)     STATIC_IP="${2:-}"; shift 2 ;;
+        --gateway)       GATEWAY="${2:-}"; shift 2 ;;
+        --netmask)       NETMASK="${2:-}"; shift 2 ;;
+        --dns)           DNS="${2:-}"; shift 2 ;;
+        --no-reboot)     NO_REBOOT=YES; shift ;;
+        --dry-run)       DRY_RUN=YES; shift ;;
+        --help|-h)       usage ;;
+        *)               die "Unknown arg: $1 (try --help)" ;;
+    esac
+done
+
+# Validate required args
+[[ -n $UCM_IP ]]     || die "missing --ucm-ip"
+[[ -n $BROKER_HOST ]] || die "missing --broker-host"
+
+# Auto-detect MAC if requested
+if [[ $UCM_MAC_AUTO == YES ]]; then
+    [[ -n $UCM_MAC ]] && die "cannot pass both --ucm-mac and --ucm-mac-auto"
+    found=$(arp -n "$UCM_IP" 2>/dev/null \
+        | grep -oE '[0-9a-fA-F]{1,2}(:[0-9a-fA-F]{1,2}){5}' \
+        | head -1 \
+        | tr -d ':' \
+        | tr '[:lower:]' '[:upper:]')
+    [[ -n $found ]] || die "could not auto-detect MAC for $UCM_IP via arp (try plain ping first to populate ARP cache, or pass --ucm-mac explicitly)"
+    UCM_MAC=$found
+    echo "Auto-detected UCM MAC: $UCM_MAC"
+fi
+[[ -n $UCM_MAC ]] || die "missing --ucm-mac (or pass --ucm-mac-auto to autodetect via arp)"
+
+# Normalize + validate MAC
+UCM_MAC=$(echo "$UCM_MAC" | tr -d ':-' | tr '[:lower:]' '[:upper:]')
+[[ $UCM_MAC =~ ^[0-9A-F]{12}$ ]] || die "MAC '$UCM_MAC' must be 12 hex chars (no separators)"
+
+# The EUCM firmware will NOT initiate an MQTT connection unless BOTH a username
+# and password are set — even against an anonymous broker (it simply never
+# connects, with no error). An anonymous broker ignores the values, so any
+# non-empty pair works; but they must be non-empty.
+if [[ -z $MQTT_USER || -z $MQTT_PASS ]]; then
+    echo "WARNING: --mqtt-user / --mqtt-pass is empty. The SkyCentrics EUCM will" >&2
+    echo "         not connect to the broker without BOTH set (even an anonymous" >&2
+    echo "         broker ignores the values). Pass any non-empty pair." >&2
+fi
+
+# Static-IP args come as a set; require all four if any one is set
+if [[ -n $STATIC_IP || -n $GATEWAY || -n $NETMASK || -n $DNS ]]; then
+    [[ -n $STATIC_IP && -n $GATEWAY && -n $NETMASK && -n $DNS ]] \
+        || die "static IP config requires all four: --static-ip --gateway --netmask --dns"
+    NETWORK_MODE=static
+else
+    NETWORK_MODE=dhcp
+fi
+
+BASE_URL="http://${UCM_IP}:80"
+AUTH="admin:${UCM_MAC}"
+
+# --- Helpers ---
+do_post() {
+    # POST form data to an endpoint.
+    # Args: <endpoint-path> [<form-data>] [<fire-and-forget>]
+    #
+    # fire-and-forget = YES is for /trigger_reboot: the UCM reboots the instant
+    # it receives the POST and never sends an HTTP response, so curl "failing"
+    # with a timeout or dropped connection is the EXPECTED success signal, not
+    # an error. In that mode a no-response curl exit is treated as success and a
+    # shorter timeout is used so we don't block the full 15s every reboot.
+    local path=$1
+    local data=${2:-}
+    local fire_and_forget=${3:-NO}
+    local url="${BASE_URL}${path}"
+    if [[ $DRY_RUN == YES ]]; then
+        echo "  DRY-RUN: POST $url"
+        [[ -n $data ]] && echo "           body: $data"
+        return 0
+    fi
+    local timeout=15
+    [[ $fire_and_forget == YES ]] && timeout=8
+    local out http_code rc
+    # Capture curl's exit code without tripping set -e, so we can decide for
+    # ourselves whether a connection failure is fatal.
+    out=$(curl -sS --user "$AUTH" --max-time "$timeout" \
+              -o /tmp/ucm-configure.out -w "%{http_code}" \
+              -X POST "$url" \
+              ${data:+-H "Content-Type: application/x-www-form-urlencoded" --data "$data"} \
+              2>/dev/null) && rc=0 || rc=$?
+
+    if [[ $fire_and_forget == YES ]]; then
+        case $rc in
+            0)
+                http_code=$out
+                case $http_code in
+                    2*)  echo "  OK ($http_code): reboot accepted" ;;
+                    401) echo "  AUTH FAILED (HTTP 401) — check --ucm-mac (currently '$UCM_MAC')" >&2; exit 2 ;;
+                    *)   echo "  HTTP $http_code (unexpected reboot response, proceeding anyway)" >&2 ;;
+                esac ;;
+            # 28 = timeout, 52 = empty reply, 56 = recv error: all mean the UCM
+            # took the request and dropped the connection to reboot. Success.
+            28|52|56)
+                echo "  OK: no HTTP response (connection dropped); the UCM is rebooting" ;;
+            *)
+                die "could not reach $url to trigger reboot (curl exit $rc)" ;;
+        esac
+        return 0
+    fi
+
+    [[ $rc -eq 0 ]] || die "could not reach $url (curl exit $rc)"
+    http_code=$out
+    case $http_code in
+        2*) echo "  OK ($http_code)" ;;
+        401) echo "  AUTH FAILED (HTTP 401) — check --ucm-mac (currently '$UCM_MAC')" >&2; exit 2 ;;
+        *) echo "  HTTP $http_code" >&2; cat /tmp/ucm-configure.out >&2 ; echo >&2 ; exit 1 ;;
+    esac
+}
+
+# --- Build MQTT form body ---
+mqtt_body="enabled=enabled"
+mqtt_body="${mqtt_body}&username=$(printf %s "$MQTT_USER" | sed 's/&/%26/g; s/=/%3D/g')"
+mqtt_body="${mqtt_body}&password=$(printf %s "$MQTT_PASS" | sed 's/&/%26/g; s/=/%3D/g')"
+mqtt_body="${mqtt_body}&hostname=$(printf %s "$BROKER_HOST" | sed 's/&/%26/g; s/=/%3D/g')"
+mqtt_body="${mqtt_body}&port=${BROKER_PORT}"
+
+# --- Build Network form body (always sent; mode determines what matters) ---
+net_body="dhcp=$([[ $NETWORK_MODE == dhcp ]] && echo true || echo false)"
+net_body="${net_body}&default=false"
+net_body="${net_body}&static=$([[ $NETWORK_MODE == static ]] && echo true || echo false)"
+net_body="${net_body}&ip=${STATIC_IP}"
+net_body="${net_body}&gateway=${GATEWAY}"
+net_body="${net_body}&netmask=${NETMASK}"
+net_body="${net_body}&dns=${DNS}"
+
+# --- Execute ---
+echo "Configuring UCM at $UCM_IP (MAC $UCM_MAC)"
+echo "  → MQTT broker = ${BROKER_HOST}:${BROKER_PORT} (user='${MQTT_USER}', pass='${MQTT_PASS:+***}')"
+echo "  → Network     = ${NETWORK_MODE}${STATIC_IP:+ ($STATIC_IP via $GATEWAY, mask $NETMASK, dns $DNS)}"
+echo "  → Reboot      = $([[ $NO_REBOOT == YES ]] && echo NO || echo YES)"
+echo
+
+echo "==> POST /save_mqtt_settings"
+do_post /save_mqtt_settings "$mqtt_body"
+
+if [[ $NETWORK_MODE == static ]]; then
+    echo "==> POST /save_network_settings"
+    do_post /save_network_settings "$net_body"
+fi
+
+if [[ $NO_REBOOT == YES ]]; then
+    echo
+    echo "Settings saved but reboot NOT triggered (--no-reboot). The UCM"
+    echo "will use the new settings only after the next reboot."
+    exit 0
+fi
+
+echo "==> POST /trigger_reboot"
+do_post /trigger_reboot "" YES
+
+echo
+echo "Reboot triggered. UCM will take ~45s to come back."
+echo "Verify with: ucm-watch --mac ${UCM_MAC} --broker-host ${BROKER_HOST}"
+echo "(watch for the UCM's traffic once it reconnects to the broker)"
