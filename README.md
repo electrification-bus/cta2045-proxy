@@ -17,6 +17,13 @@ ebus/5/{MAC}/       energy.ebus.device.bridge        (the UCM)
 ebus/5/{MAC}-wh01/  energy.ebus.device.water-heater  (the proxied appliance)
 ```
 
+The UCM is a **pluggable backend**, not a fixed assumption. CTA-2045 standardizes only the SGD-to-UCM link; how a UCM reaches the network is vendor-specific, so each UCM is a separate backend behind the vendor-neutral `cta2045.ucm.Ucm` interface. A SkyCentrics Ethernet UCM (over MQTT) ships today; the same CTA-2045 decode and eBus device model serve any future UCM without change:
+
+- other vendors' CTA-2045 UCMs (add a backend for that dongle's transport),
+- a **native own-UCM** that drives the CTA-2045 RS485 link layer directly, with no vendor dongle at all (reserved; see below).
+
+Adding support for a new UCM means writing one backend; the appliance-side mapping and Homie publishing are shared across all of them.
+
 ## Architecture
 
 Three layers, cleanly separated:
