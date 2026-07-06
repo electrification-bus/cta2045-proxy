@@ -2,6 +2,12 @@
 
 All notable changes to `cta2045-proxy` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2]
+
+### Added
+
+- The SkyCentrics UCM commissioning helpers (`tools/ucm-discover`, `tools/ucm-configure`, `tools/ucm-watch`) now ship in the **source distribution** via `MANIFEST.in`. They are deliberately kept **out of the installed wheel**: they are specific to the `skycentrics` backend (OUI scan, the SkyCentrics web UI, SkyCentrics topics), not general UCM tooling, so `pip install cta2045-proxy` adds nothing to your PATH. A downstream that runs the skycentrics backend installs them from the unpacked sdist as needed.
+
 ## [0.1.1]
 
 ### Fixed
