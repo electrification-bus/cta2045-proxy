@@ -6,7 +6,7 @@
 
 Proxy a CTA-2045 (EcoPort) Smart Grid Device onto the [Electrification Bus](https://ebus.energy) (eBus / Homie 5), through a pluggable UCM backend.
 
-> **Status: pre-alpha.** The SkyCentrics UCM backend is functional and validated end to end against a live SkyCentrics Ethernet UCM: telemetry decode, the full Homie device tree, and bidirectional demand-response control. The public API may still change before 1.0, and the package is not yet published to PyPI. It has **not** been certified under any conformance program and carries no warranty of interoperability.
+> **Status: pre-alpha.** The SkyCentrics UCM backend is functional and validated end to end against a live SkyCentrics Ethernet UCM: telemetry decode, the full Homie device tree, and bidirectional demand-response control. The public API may still change before 1.0. Published to PyPI as [`cta2045-proxy`](https://pypi.org/project/cta2045-proxy/) (`pip install cta2045-proxy`). It has **not** been certified under any conformance program and carries no warranty of interoperability.
 
 ## What it does
 
