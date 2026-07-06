@@ -2,7 +2,13 @@
 
 All notable changes to `cta2045-proxy` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1]
+
+### Fixed
+
+- Legacy-setuptools packaging: added a `setup.py` shim so setuptools < 61 (notably the 59.5.0 pinned in Yocto kirkstone) builds a populated wheel from the sdist. Without it, the legacy build could not read `[tool.setuptools.packages.find]` or `[project.scripts]` from `pyproject.toml` and produced a wheel with the correct name and version but zero modules and no `cta2045-proxy` entry point (on a target image this left the module un-importable and `/usr/bin/cta2045-proxy` missing). Mirrors the `python-cta2045` shim. No API or behavior change.
+
+## [0.1.0]
 
 Initial (pre-alpha) release: proxy a CTA-2045 (EcoPort) Smart Grid Device onto the Electrification Bus (eBus / Homie 5) through a pluggable UCM backend.
 

@@ -1,6 +1,6 @@
 [project]
 name = "cta2045-proxy"
-version = "0.1.0"
+version = "0.1.1"
 description = "Proxy a CTA-2045 (EcoPort) Smart Grid Device onto the Electrification Bus (eBus / Homie 5), via a pluggable UCM backend"
 readme = "README.md"
 requires-python = ">=3.10"
