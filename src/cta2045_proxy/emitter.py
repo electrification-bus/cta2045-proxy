@@ -20,7 +20,6 @@ from typing import Dict, Optional, Tuple
 
 import ebus_sdk.homie as homie
 from ebus_sdk import GroupedPropertyDict, build_from_declarations
-from ebus_sdk.homie import DeviceState
 
 from . import mapping
 
@@ -133,13 +132,15 @@ class WaterHeaterProxyDevice:
     # -- lifecycle -------------------------------------------------------- #
 
     def cleanup(self) -> None:
-        for device in (self.water_heater, self.bridge):
-            try:
-                device.set_state(DeviceState.LOST)
-            except Exception as e:
-                self._log.warning(f"reason=cleanupSetLostFail,mac={self._mac},e={e}")
+        """Gracefully tear down the device tree.
+
+        ebus-sdk 0.10's Device.stop() is a tree-level teardown: it publishes a
+        final $state=disconnected for the bridge root (which, per the Homie 5
+        effective-state rule, covers the child water-heater) then stops the
+        shared MQTT client. It is bounded end-to-end, so a dead broker can't
+        stall shutdown. This supersedes the old set-LOST-then-mqttc.stop() dance.
+        """
         try:
-            if self.bridge.mqttc:
-                self.bridge.mqttc.stop()
+            self.bridge.stop()
         except Exception as e:
-            self._log.warning(f"reason=cleanupMqttStopFail,mac={self._mac},e={e}")
+            self._log.warning(f"reason=cleanupStopFail,mac={self._mac},e={e}")

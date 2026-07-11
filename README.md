@@ -53,6 +53,19 @@ cta2045-proxy --config config/config.toml
 
 See [`config/config.example.toml`](config/config.example.toml) for the `[ucm]` backend selector and the `[ebus]` output broker. A downstream deployment customizes only the config; the code is deployment-neutral.
 
+The command runs in the foreground and waits until interrupted (SIGINT/SIGTERM), tearing down its eBus tree on exit.
+
+```
+usage: cta2045-proxy [-h] --config CONFIG [--log-level LOG_LEVEL] [--version]
+
+  --config CONFIG        path to the config TOML (required)
+  --log-level LOG_LEVEL  logging level (default: INFO, or $LOG_LEVEL)
+  --version              print the version and exit
+  -h, --help             show this help and exit
+```
+
+Exit codes: `0` on clean shutdown, `2` on a usage error (missing or unknown flag), `1` on a startup or runtime error (bad config path, malformed TOML, or a failure in the run loop).
+
 ## Bring up a SkyCentrics UCM
 
 [`tools/`](tools/) has helper scripts to discover a SkyCentrics Ethernet UCM on your LAN, point it at a broker, and confirm it is publishing (`ucm-discover`, `ucm-configure`, `ucm-watch`), plus a how-to for standing up a local test broker (via the sibling [`broker-quickstart`](https://github.com/electrification-bus/broker-quickstart) or a bare Mosquitto). See [`tools/README.md`](tools/README.md).

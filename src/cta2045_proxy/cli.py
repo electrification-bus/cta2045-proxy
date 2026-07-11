@@ -13,12 +13,27 @@ from .config import load
 from .core import Cta2045Proxy
 
 
+def _version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("cta2045-proxy")
+    except PackageNotFoundError:  # running from a source tree without an install
+        return "0+unknown"
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="cta2045-proxy")
     ap.add_argument("--config", required=True, help="path to a TOML config (see config/config.example.toml)")
+    ap.add_argument(
+        "--log-level",
+        default=os.getenv("LOG_LEVEL", "INFO"),
+        help="logging level (default: INFO, or $LOG_LEVEL)",
+    )
+    ap.add_argument("--version", action="version", version=f"%(prog)s {_version()}")
     args = ap.parse_args(argv)
 
-    log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    log_level = getattr(logging, args.log_level.upper(), logging.INFO)
     logging.basicConfig()
     log = logging.getLogger("cta2045_proxy")
     log.setLevel(log_level)
