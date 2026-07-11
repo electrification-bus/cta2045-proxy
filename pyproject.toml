@@ -1,6 +1,9 @@
 [project]
 name = "cta2045-proxy"
-version = "0.1.2"
+# Single source of truth: src/cta2045_proxy/__init__.py's __version__ (read
+# dynamically below, and by setup.py's legacy path). Bump it in ONE place; a
+# publish.yml guard fails the release if the git tag disagrees.
+dynamic = ["version"]
 description = "Proxy a CTA-2045 (EcoPort) Smart Grid Device onto the Electrification Bus (eBus / Homie 5), via a pluggable UCM backend"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +33,9 @@ cta2045-proxy = "cta2045_proxy.cli:main"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {attr = "cta2045_proxy.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

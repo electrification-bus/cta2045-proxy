@@ -129,6 +129,19 @@ pip install pre-commit && pre-commit install
 
 CI (`.github/workflows/`) runs the same ruff checks and pytest on 3.10 / 3.12 for every push and PR.
 
+## Releasing
+
+The version has a single source of truth: `__version__` in [`src/cta2045_proxy/__init__.py`](src/cta2045_proxy/__init__.py). Both build paths read it (the modern `pyproject.toml` via `dynamic = ["version"]`, and the legacy [`setup.py`](setup.py) shim for Yocto/kirkstone), so there is exactly one line to bump.
+
+To cut a release:
+
+1. Bump `__version__` in `src/cta2045_proxy/__init__.py` (the only place).
+2. Commit it (`git commit -am "release X.Y.Z"`).
+3. Tag it to match, prefixed with `v`: `git tag vX.Y.Z`.
+4. Push the tag: `git push --tags` (a plain `git push` alone does not trigger a release).
+
+Pushing a `v*` tag runs [`publish.yml`](.github/workflows/publish.yml): it reruns the tests, verifies the tag equals `v$__version__` (a mismatch fails the run before anything is published), builds the sdist + wheel, and publishes to PyPI via Trusted Publishing (OIDC, no stored token). The tag and the packaged version can therefore never disagree in a published artifact.
+
 ## References
 
 - [CTA-2045 protocol library (`cta2045`)](https://github.com/electrification-bus/python-cta2045)
