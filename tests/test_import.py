@@ -17,9 +17,19 @@ def test_specs_are_well_formed():
         assert isinstance(spec, PropertySpec)
         assert spec.capability and spec.prop_id
 
-    # dr/event is settable and carries its entity_setter (auto-wired at build).
-    event = next(s for s in mapping.water_heater_specs(lambda v: None) if s.prop_id == "event")
-    assert event.settable and event.entity_setter is not None
+    specs = mapping.water_heater_specs(lambda v: None)
+
+    # flex/request is settable, carries its entity_setter (auto-wired at build),
+    # and advertises its control surface via a json $format JSONSchema.
+    request = next(s for s in specs if s.capability == "flex" and s.prop_id == "request")
+    assert request.settable and request.entity_setter is not None
+    assert request.format, "flex/request must advertise a $format JSONSchema"
+
+    # response and opt-out are enums with their allowed-value lists.
+    response = next(s for s in specs if s.capability == "flex" and s.prop_id == "response")
+    assert "NONE" in response.format and "CURTAILED" in response.format
+    opt_out = next(s for s in specs if s.capability == "flex" and s.prop_id == "opt-out")
+    assert opt_out.format == "NONE,LOCAL,GRID,ALL"
 
 
 def test_unknown_backend_kind_raises():

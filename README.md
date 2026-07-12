@@ -97,22 +97,24 @@ ebus/5/
     │   ├── soe = 0.0 Wh
     │   ├── total-energy-storage = 4500.0 Wh
     │   └── loadup-headroom = (unset)
-    ├── dr/
-    │   ├── dr-response = NONE
-    │   ├── opted-out = false
-    │   ├── event = (settable — publish a DR command to .../dr/event/set)
-    │   └── active-event = {"mode": "NORMAL"}
+    ├── flex/
+    │   ├── response = NONE
+    │   ├── opt-out = NONE
+    │   ├── request = (settable — publish a flex command to .../flex/request/set)
+    │   └── active-request = {"mode": "NORMAL"}
     └── status/
         └── fault-state = OK
 ```
 
-Send a demand-response command by publishing to the settable `event` property, e.g. a 10-minute shed:
+`flex` is the vendor-neutral demand-response control-and-feedback capability ([`energy.ebus.capability.flex`](https://github.com/electrification-bus/specification/blob/main/capabilities/flex.md)). The settable `request` property advertises the device's accepted control surface in its Homie 5 `$format` JSONSchema; the proxy validates each inbound `/set` against it before translating. For a CTA-2045 SGD that schema constrains `mode` (`SHED` / `LOAD_UP` / `NORMAL`) and `intensity` (`PEAK` / `EMERGENCY` / `ADVANCED`) and omits `level`.
+
+Send a demand-response command by publishing to the settable `request` property, e.g. a 10-minute shed:
 
 ```
-mosquitto_pub -t 'ebus/5/84FEDC538C72-wh01/dr/event/set' -m '{"mode":"SHED","duration":600}'
+mosquitto_pub -t 'ebus/5/84FEDC538C72-wh01/flex/request/set' -m '{"mode":"SHED","duration":600}'
 ```
 
-The proxy encodes it to CTA-2045 and forwards it to the UCM (`devices/84FEDC538C72/ctl/shed`); the SGD's resulting state flows back to `dr/dr-response` (e.g. `CURTAILED`).
+The proxy validates it against the `request` `$format`, encodes it to CTA-2045, and forwards it to the UCM (`devices/84FEDC538C72/ctl/shed`); the SGD's resulting state flows back to `flex/response` (e.g. `CURTAILED`).
 
 ## Development
 

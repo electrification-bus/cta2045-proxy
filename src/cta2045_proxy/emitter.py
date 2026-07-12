@@ -61,11 +61,11 @@ class WaterHeaterProxyDevice:
             type="energy.ebus.device.water-heater",
             parent=self.bridge,
         )
-        # build_from_declarations (ebus-sdk >=0.9) wires the settable dr/event
+        # build_from_declarations (ebus-sdk >=0.9) wires the settable flex/request
         # inbound path from its spec's settable=True + entity_setter; no manual
         # post-build step is needed.
         self._wh_props: Dict[Tuple[str, str], homie.Property] = build_from_declarations(
-            self.water_heater, self.wh_model, mapping.water_heater_specs(self._on_dr_event_set)
+            self.water_heater, self.wh_model, mapping.water_heater_specs(self._on_flex_request_set)
         )
 
         # Static bridge connection view: the UCM->water-heater link. Marked OK
@@ -119,15 +119,15 @@ class WaterHeaterProxyDevice:
 
     # -- outbound (control) path ----------------------------------------- #
 
-    def _on_dr_event_set(self, event_value):
-        """entity_setter for dr/event: translate to CTA-2045 and send to the UCM."""
-        msg = mapping.command_for_dr_event(event_value, self._log)
+    def _on_flex_request_set(self, request_value):
+        """entity_setter for flex/request: validate, translate to CTA-2045, send to the UCM."""
+        msg = mapping.command_for_flex_request(request_value, self._log)
         if msg is None:
-            return event_value
+            return request_value
         self._ucm.send(msg)
-        # Echo the accepted event onto active-event for observers.
-        self.wh_model.set_value("dr", "active-event", event_value)
-        return event_value
+        # Echo the accepted request onto active-request for observers.
+        self.wh_model.set_value("flex", "active-request", request_value)
+        return request_value
 
     # -- lifecycle -------------------------------------------------------- #
 

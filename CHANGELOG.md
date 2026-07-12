@@ -2,6 +2,16 @@
 
 All notable changes to `cta2045-proxy` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking (topic tree):** the demand-response capability the water-heater child publishes was renamed from `dr` to `flex`, tracking the eBus specification's rename of `energy.ebus.capability.dr` to the canonical `energy.ebus.capability.flex` ([`capabilities/flex.md`](https://github.com/electrification-bus/specification/blob/main/capabilities/flex.md)). Property renames: `dr/event` to `flex/request` (settable json), `dr/active-event` to `flex/active-request`, `dr/dr-response` to `flex/response`. `dr/opted-out` (boolean) becomes `flex/opt-out`, now a four-way enum (`NONE` / `LOCAL` / `GRID` / `ALL`); a CTA-2045 SGD models only the on/off "Grid Enabled" override, mapped to `ALL` (off) or `NONE`. `response` and `opt-out` are now Homie `enum` properties carrying their allowed-value lists. Consumers subscribed to the old `dr/*` topics must move to `flex/*`.
+
+### Added
+
+- The settable `flex/request` property advertises this device's accepted control surface in its Homie 5 `$format` JSONSchema (constraining `mode` and `intensity`, omitting `level` for a CTA-2045 SGD). Each inbound `/set` is validated against that schema (via ebus-sdk 0.11's `validate_json_format`) before translation, so an out-of-surface or malformed command never reaches the CTA-2045 link. The `ebus-sdk[validation]` extra (jsonschema) is now a dependency, and the floor is raised to `ebus-sdk>=0.11.0`.
+
 ## [0.1.2]
 
 ### Added

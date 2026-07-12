@@ -8,22 +8,25 @@ Pure translation: no MQTT, no Homie devices. This module owns
   model and the Homie tree), and
 - the decode-direction handlers that turn a decoded `cta2045.app` message into
   observable-model updates, plus the encode-direction translation of a Homie
-  `dr/event` command back into a CTA-2045 application message.
+  `flex/request` command back into a CTA-2045 application message.
 
-Data-model reference: ../../specification/data-models/water-heater.md
-(§Example: CTA-2045 water heater). Built against ebus-sdk 0.8's declarative
-proxy layer (PropertySpec + build_from_declarations).
+Capability reference: ../../specification/capabilities/flex.md (the `flex`
+control-and-feedback surface); data-model reference:
+../../specification/data-models/water-heater.md (§Example: CTA-2045 water
+heater). Built against ebus-sdk's declarative proxy layer (PropertySpec +
+build_from_declarations) and its json `$format` JSONSchema validation.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Callable, Optional
 
 from cta2045 import app
 from cta2045.enums import CommodityCode, OperationalState
 
-from ebus_sdk import PropertyDatatype, PropertySpec, Unit
+from ebus_sdk import PropertyDatatype, PropertySpec, Unit, validate_json_format
 
 # GroupedPropertyDict is the homie-agnostic observable model; depending on it
 # here (not on homie.Device) keeps this module transport-free.
@@ -46,13 +49,31 @@ BRIDGE_SPECS: list[PropertySpec] = [
 ]
 
 
+# The `flex/request` control surface this device accepts, as a JSONSchema (the
+# Homie 5 json `$format`). A CTA-2045 SGD sheds / loads up without a percentage,
+# so the schema constrains `mode` and `intensity` and OMITS `level` entirely
+# (capabilities/flex.md §Self-describing control surface). additionalProperties
+# is left open, so a controller MAY also send `duration` (honored by the encoder)
+# and `cause`. A controller MUST read this schema and send only what it permits.
+FLEX_REQUEST_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "mode": {"enum": ["SHED", "LOAD_UP", "NORMAL"]},
+        "intensity": {"enum": ["PEAK", "EMERGENCY", "ADVANCED"]},
+    },
+    "required": ["mode"],
+}
+# Homie wire form of the schema (the `$format` string on the request property).
+FLEX_REQUEST_FORMAT: str = json.dumps(FLEX_REQUEST_SCHEMA, separators=(",", ":"))
+
+
 # --- Declarative schema: the proxied water-heater child ----------------------
-# A factory rather than a module constant: the settable `dr/event` property's
+# A factory rather than a module constant: the settable `flex/request` property's
 # entity_setter is a per-device bound method (it needs the device's UCM + model),
 # so it must be supplied at build time. build_from_declarations (ebus-sdk >=0.9)
 # wires the whole inbound /set path from settable=True + entity_setter.
-def water_heater_specs(on_dr_event_set: Callable) -> list[PropertySpec]:
-    """PropertySpecs for the water-heater child, with dr/event bound to its setter."""
+def water_heater_specs(on_flex_request_set: Callable) -> list[PropertySpec]:
+    """PropertySpecs for the water-heater child, with flex/request bound to its setter."""
     return [
         PropertySpec("info", "fuel-type", PropertyDatatype.STRING),
         PropertySpec("meter", "active-power", PropertyDatatype.FLOAT, Unit.WATT),
@@ -60,12 +81,25 @@ def water_heater_specs(on_dr_event_set: Callable) -> list[PropertySpec]:
         PropertySpec("soc", "soe", PropertyDatatype.FLOAT, Unit.WATT_HOUR),
         PropertySpec("soc", "total-energy-storage", PropertyDatatype.FLOAT, Unit.WATT_HOUR),
         PropertySpec("soc", "loadup-headroom", PropertyDatatype.FLOAT, Unit.WATT_HOUR),
-        PropertySpec("dr", "dr-response", PropertyDatatype.STRING),
-        PropertySpec("dr", "opted-out", PropertyDatatype.BOOLEAN),
+        # response: decomposed vendor-neutral state (replaces CTA-2045's 15-value
+        # operational-state enum). opt-out: four-way Matter OptOutStateEnum; a
+        # CTA-2045 device models only the on/off "Grid Enabled" override, so it
+        # uses NONE and ALL (ALL when Grid Enabled is off).
+        PropertySpec("flex", "response", PropertyDatatype.ENUM, format="NONE,CURTAILED,BOOSTED,NOT_FOLLOWING"),
+        PropertySpec("flex", "opt-out", PropertyDatatype.ENUM, format="NONE,LOCAL,GRID,ALL"),
         # Settable (controller -> device): an arriving /set routes through the
-        # model to on_dr_event_set, which translates it to a CTA-2045 command.
-        PropertySpec("dr", "event", PropertyDatatype.JSON, settable=True, entity_setter=on_dr_event_set),
-        PropertySpec("dr", "active-event", PropertyDatatype.JSON),
+        # model to on_flex_request_set, which validates it against the request
+        # $format and translates it to a CTA-2045 command. The $format advertises
+        # this device's accepted control surface.
+        PropertySpec(
+            "flex",
+            "request",
+            PropertyDatatype.JSON,
+            settable=True,
+            format=FLEX_REQUEST_FORMAT,
+            entity_setter=on_flex_request_set,
+        ),
+        PropertySpec("flex", "active-request", PropertyDatatype.JSON),
         PropertySpec("status", "fault-state", PropertyDatatype.STRING),
     ]
 
@@ -145,9 +179,12 @@ def apply_decoded(
 
 
 def _apply_operational_state(state: OperationalState, wh: GroupedPropertyDict) -> None:
-    dr_response, opted_out, fault = OP_STATE_DECOMPOSITION.get(state, ("NONE", False, False))
-    wh.set_value("dr", "dr-response", dr_response)
-    wh.set_value("dr", "opted-out", opted_out)
+    response, opted_out, fault = OP_STATE_DECOMPOSITION.get(state, ("NONE", False, False))
+    wh.set_value("flex", "response", response)
+    # CTA-2045 has only a single on/off opt-out (the "Grid Enabled" override), so
+    # it maps to the four-way flex/opt-out as ALL (off) or NONE (participating);
+    # there is no LOCAL/GRID split at this layer.
+    wh.set_value("flex", "opt-out", "ALL" if opted_out else "NONE")
     wh.set_value("status", "fault-state", "FAULT" if fault else "OK")
 
 
@@ -194,21 +231,25 @@ def firmware_version(reply) -> Optional[str]:
     return version
 
 
-# --- Encode direction: Homie dr/event command -> CTA-2045 message ------------
+# --- Encode direction: Homie flex/request command -> CTA-2045 message --------
 
 
-def command_for_dr_event(event_value, log: Optional[logging.Logger] = None):
-    """Translate a `dr/event` JSON object into a CTA-2045 application message.
+def command_for_flex_request(request_value, log: Optional[logging.Logger] = None):
+    """Translate a `flex/request` JSON object into a CTA-2045 application message.
 
-    Returns a `cta2045.app` message ready for `Ucm.send`, or None if the event
-    could not be translated (unknown mode / parse failure). The caller owns the
-    transport; this function is pure.
+    Returns a `cta2045.app` message ready for `Ucm.send`, or None if the request
+    is invalid against the request `$format` or could not be translated (unknown
+    mode / parse failure). The caller owns the transport; this function is pure.
     """
-    import json
-
     log = log or logging.getLogger("cta2045_proxy.mapping")
     try:
-        evt = json.loads(event_value) if isinstance(event_value, (str, bytes)) else event_value
+        evt = json.loads(request_value) if isinstance(request_value, (str, bytes)) else request_value
+        # Reject commands the advertised control surface does not permit, so a
+        # malformed or out-of-surface /set never reaches the CTA-2045 link.
+        err = validate_json_format(evt, FLEX_REQUEST_SCHEMA)
+        if err:
+            log.warning(f"reason=flexRequestInvalid,err={err},payload={request_value!r}")
+            return None
         mode = evt.get("mode", "NORMAL")
         intensity = evt.get("intensity")
         duration_s = evt.get("duration")
@@ -227,8 +268,8 @@ def command_for_dr_event(event_value, log: Optional[logging.Logger] = None):
             # value + units (Wh quantization) supplied in the event JSON.
             return app.load_up(duration_min)
 
-        log.warning(f"reason=drEventUnknownMode,mode={mode}")
+        log.warning(f"reason=flexRequestUnknownMode,mode={mode}")
         return None
     except Exception as e:
-        log.warning(f"reason=drEventParseException,e={e},payload={event_value!r}")
+        log.warning(f"reason=flexRequestParseException,e={e},payload={request_value!r}")
         return None

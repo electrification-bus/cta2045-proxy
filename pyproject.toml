@@ -14,7 +14,9 @@ authors = [
 keywords = ["cta-2045", "cta2045", "ecoport", "ucm", "demand-response", "water-heater", "ebus", "homie", "proxy"]
 dependencies = [
     "cta2045>=0.1.0",
-    "ebus-sdk>=0.10.0",
+    # [validation] pulls jsonschema so the flex/request $format JSONSchema is
+    # enforced on inbound /set (0.11.0 adds the json datatype + $format support).
+    "ebus-sdk[validation]>=0.11.0",
     "ebus-mqtt-client>=0.1.7",
     "tomli>=2.0; python_version < '3.11'",
 ]
