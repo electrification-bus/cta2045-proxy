@@ -17,4 +17,4 @@ A downstream deployment customizes only the `[ebus]` / `[ucm]` config; the code
 here is deployment-neutral.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
