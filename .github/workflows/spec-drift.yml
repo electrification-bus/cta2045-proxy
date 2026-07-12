@@ -1,0 +1,38 @@
+name: spec drift
+
+# Verifies .ebus-spec.json against the current eBus specification manifest: the
+# job goes red when an artifact this repo pins under `implements` (or its
+# `framework` version) has moved past our `synced_commit`, signalling a re-sync
+# is due. `drift-report.py` exits 1 on drift, 0 when the lockfile is current.
+#
+# It checks against specification@main (HEAD), so a spec bump can turn this red
+# on an otherwise-unrelated PR: that is intentional (a lockfile check is only
+# useful if it notices upstream movement). The weekly schedule catches drift
+# even when this repo is quiet. Run the same check locally before committing a
+# spec sync:
+#   python3 ../specification/tools/drift-report.py .ebus-spec.json
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 9 * * 1"  # Mondays 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out cta2045-proxy
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Check out the eBus specification (latest main)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: electrification-bus/specification
+          path: specification
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+      - name: Report spec-lockfile drift
+        run: python3 specification/tools/drift-report.py .ebus-spec.json

@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/cta2045-proxy.svg)](https://pypi.org/project/cta2045-proxy/)
 [![CI](https://github.com/electrification-bus/cta2045-proxy/actions/workflows/test.yml/badge.svg)](https://github.com/electrification-bus/cta2045-proxy/actions/workflows/test.yml)
+[![spec drift](https://github.com/electrification-bus/cta2045-proxy/actions/workflows/spec-drift.yml/badge.svg)](https://github.com/electrification-bus/cta2045-proxy/actions/workflows/spec-drift.yml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://ebus.energy/schemas/ebus-spec.json",
+  "spec_repo": "https://github.com/electrification-bus/specification",
+  "synced_commit": "32634bc9439da0d38c7a46a1e72d63422bc5883a",
+  "synced_date": "2026-07-11",
+  "role": "publisher",
+  "framework": "0.5",
+  "implements": {
+    "capabilities": { "info": "0.1", "meter": "0.1", "connection": "0.1", "flex": "0.1" },
+    "data-models": { "water-heater": "0.2" }
+  },
+  "notes": "CTA-2045 (EcoPort) UCM -> eBus water-heater bridge. Publishes a bridge root (energy.ebus.device.bridge, capabilities info + connection) and a proxied water-heater child (energy.ebus.device.water-heater). The child also publishes soc and status nodes (energy.ebus.capability.soc / .status); those are defined as roles within the water-heater data model (0.2) and have no standalone versioned capability catalog yet, so they are not pinned separately here. flex reconciled to the post-rename capability at this commit (was dr); flex/request $format JSONSchema validation requires ebus-sdk[validation]."
+}
