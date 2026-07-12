@@ -107,7 +107,7 @@ ebus/5/
         └── fault-state = OK
 ```
 
-`flex` is the vendor-neutral demand-response control-and-feedback capability ([`energy.ebus.capability.flex`](https://github.com/electrification-bus/specification/blob/main/capabilities/flex.md)). The settable `request` property advertises the device's accepted control surface in its Homie 5 `$format` JSONSchema; the proxy validates each inbound `/set` against it before translating. For a CTA-2045 SGD that schema constrains `mode` (`SHED` / `LOAD_UP` / `NORMAL`) and `intensity` (`PEAK` / `EMERGENCY` / `ADVANCED`) and omits `level`.
+`flex` is the vendor-neutral demand-response control-and-feedback capability ([`energy.ebus.capability.flex`](https://github.com/electrification-bus/specification/blob/main/capabilities/flex.md)). The settable `request` property advertises the device's accepted control surface in its Homie 5 `$format` JSONSchema, and the proxy validates each inbound `/set` against it (strictly: unknown fields are rejected, not ignored) before translating. For a CTA-2045 SGD that schema accepts `mode` (`SHED` / `LOAD_UP` / `NORMAL`), `intensity` (`PEAK` / `EMERGENCY` / `ADVANCED`), `duration` (seconds), an advisory `cause`, and, for load-up, a `target-percentage` (heat until stored-energy `soc` reaches that %, encoded as CTA-2045 Advanced Load Up). It omits `level` (the SGD sheds/loads-up without a percentage) and `temporary-setpoint` (CTA-2045 quantifies Advanced Load Up in watt-hours, not degrees).
 
 Send a demand-response command by publishing to the settable `request` property, e.g. a 10-minute shed:
 

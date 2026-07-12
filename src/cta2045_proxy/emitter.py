@@ -121,7 +121,14 @@ class WaterHeaterProxyDevice:
 
     def _on_flex_request_set(self, request_value):
         """entity_setter for flex/request: validate, translate to CTA-2045, send to the UCM."""
-        msg = mapping.command_for_flex_request(request_value, self._log)
+        # Pass the device's latest storage figures so a LOAD_UP + ADVANCED request
+        # with a target-percentage can be encoded as Advanced Load Up (extra Wh).
+        msg = mapping.command_for_flex_request(
+            request_value,
+            self._log,
+            capacity_wh=self.wh_model.value("soc", "total-energy-storage"),
+            current_wh=self.wh_model.value("soc", "soe"),
+        )
         if msg is None:
             return request_value
         self._ucm.send(msg)

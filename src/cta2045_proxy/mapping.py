@@ -24,7 +24,7 @@ import logging
 from typing import Callable, Optional
 
 from cta2045 import app
-from cta2045.enums import CommodityCode, OperationalState
+from cta2045.enums import AdvancedLoadUpUnits, CommodityCode, OperationalState
 
 from ebus_sdk import PropertyDatatype, PropertySpec, Unit, validate_json_format
 
@@ -50,18 +50,30 @@ BRIDGE_SPECS: list[PropertySpec] = [
 
 
 # The `flex/request` control surface this device accepts, as a JSONSchema (the
-# Homie 5 json `$format`). A CTA-2045 SGD sheds / loads up without a percentage,
-# so the schema constrains `mode` and `intensity` and OMITS `level` entirely
-# (capabilities/flex.md §Self-describing control surface). additionalProperties
-# is left open, so a controller MAY also send `duration` (honored by the encoder)
-# and `cause`. A controller MUST read this schema and send only what it permits.
+# Homie 5 json `$format`, capabilities/flex.md §Self-describing control surface).
+# The schema IS the exact accepted surface (additionalProperties is false), so a
+# controller reads it and sends only what it permits:
+#   - mode + intensity: the CTA-2045 Basic / Advanced DR command set.
+#   - duration: request length in seconds (absent = until changed).
+#   - cause: advisory (Matter AdjustmentCauseEnum). CTA-2045 cannot enforce a
+#     directional opt-out, so it is not acted on, only carried to active-request.
+#   - target-percentage: the LOAD_UP thermal refinement (Matter Boost) -> heat
+#     until stored-energy `soc` reaches this %. Encoded as CTA-2045 Advanced Load
+#     Up (requires mode LOAD_UP + intensity ADVANCED).
+# `level` is OMITTED: a CTA-2045 SGD sheds / loads up without a percentage.
+# `temporary-setpoint` is OMITTED: CTA-2045 Advanced Load Up quantifies energy in
+# watt-hours (AdvancedLoadUpUnits) and cannot express a temperature target.
 FLEX_REQUEST_SCHEMA: dict = {
     "type": "object",
     "properties": {
         "mode": {"enum": ["SHED", "LOAD_UP", "NORMAL"]},
         "intensity": {"enum": ["PEAK", "EMERGENCY", "ADVANCED"]},
+        "duration": {"type": "integer", "minimum": 0},
+        "cause": {"enum": ["LOCAL_OPTIMIZATION", "GRID_OPTIMIZATION"]},
+        "target-percentage": {"type": "integer", "minimum": 0, "maximum": 100},
     },
     "required": ["mode"],
+    "additionalProperties": False,
 }
 # Homie wire form of the schema (the `$format` string on the request property).
 FLEX_REQUEST_FORMAT: str = json.dumps(FLEX_REQUEST_SCHEMA, separators=(",", ":"))
@@ -234,12 +246,45 @@ def firmware_version(reply) -> Optional[str]:
 # --- Encode direction: Homie flex/request command -> CTA-2045 message --------
 
 
-def command_for_flex_request(request_value, log: Optional[logging.Logger] = None):
+def _quantize_load_up_wh(extra_wh: float) -> tuple:
+    """Pick a CTA-2045 Advanced Load Up (value, units) for `extra_wh` watt-hours.
+
+    Advanced Load Up carries `value x units` Wh in a 2-byte value (CTA-2045-B
+    § 11.6.3), so choose the finest Wh unit whose quantized value fits in 16 bits.
+    Returns (value:int, units:AdvancedLoadUpUnits).
+    """
+    for units in (
+        AdvancedLoadUpUnits.Wh_1,
+        AdvancedLoadUpUnits.Wh_10,
+        AdvancedLoadUpUnits.Wh_100,
+        AdvancedLoadUpUnits.Wh_1000,
+    ):
+        scale = 10**units.value  # Wh_1->1, Wh_10->10, Wh_100->100, Wh_1000->1000
+        value = round(extra_wh / scale)
+        if value <= 0xFFFF:
+            return max(0, value), units
+    return 0xFFFF, AdvancedLoadUpUnits.Wh_1000
+
+
+def command_for_flex_request(
+    request_value,
+    log: Optional[logging.Logger] = None,
+    *,
+    capacity_wh: Optional[float] = None,
+    current_wh: Optional[float] = None,
+):
     """Translate a `flex/request` JSON object into a CTA-2045 application message.
 
     Returns a `cta2045.app` message ready for `Ucm.send`, or None if the request
     is invalid against the request `$format` or could not be translated (unknown
     mode / parse failure). The caller owns the transport; this function is pure.
+
+    `capacity_wh` (the device's total energy storage) and `current_wh` (its
+    present stored energy, `soc/soe`) let a `LOAD_UP` + `ADVANCED` request with a
+    `target-percentage` be encoded as CTA-2045 Advanced Load Up: the command
+    carries the *extra* Wh to store, so the absolute soc target is turned into
+    `(target%/100) * capacity - current`. When either is unknown, the request
+    falls back to Basic DR load-up.
     """
     log = log or logging.getLogger("cta2045_proxy.mapping")
     try:
@@ -264,8 +309,23 @@ def command_for_flex_request(request_value, log: Optional[logging.Logger] = None
                 return app.critical_peak(duration_min)
             return app.shed(duration_min)
         if mode == "LOAD_UP":
-            # TODO(repo-local): intensity=ADVANCED -> advanced_load_up(...) needs
-            # value + units (Wh quantization) supplied in the event JSON.
+            target_pct = evt.get("target-percentage")
+            # Advanced Load Up (a Wh energy target) applies only when the caller
+            # asked for ADVANCED intensity AND gave a target-percentage, and the
+            # device has reported the capacity + current stored energy needed to
+            # turn that absolute soc target into the "extra" Wh the command
+            # carries. Otherwise fall back to Basic DR load-up.
+            if intensity == "ADVANCED" and target_pct is not None and capacity_wh and current_wh is not None:
+                target_wh = (target_pct / 100.0) * capacity_wh
+                extra_wh = max(0.0, target_wh - current_wh)
+                value, units = _quantize_load_up_wh(extra_wh)
+                duration_minutes = int(round(duration_min)) if duration_min is not None else 0
+                return app.advanced_load_up(duration_minutes, value, units)
+            if intensity == "ADVANCED" and target_pct is not None:
+                log.info(
+                    "reason=advancedLoadUpNeedsSoc,"
+                    f"capacityKnown={capacity_wh is not None},currentKnown={current_wh is not None}"
+                )
             return app.load_up(duration_min)
 
         log.warning(f"reason=flexRequestUnknownMode,mode={mode}")
