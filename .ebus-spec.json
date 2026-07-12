@@ -1,13 +1,13 @@
 {
   "$schema": "https://ebus.energy/schemas/ebus-spec.json",
   "spec_repo": "https://github.com/electrification-bus/specification",
-  "synced_commit": "32634bc9439da0d38c7a46a1e72d63422bc5883a",
-  "synced_date": "2026-07-11",
+  "synced_commit": "058eba9c05dc916d069acf1ffa24031c5f6d9e91",
+  "synced_date": "2026-07-12",
   "role": "publisher",
-  "framework": "0.5",
+  "framework": "0.7",
   "implements": {
-    "capabilities": { "info": "0.1", "meter": "0.1", "connection": "0.1", "flex": "0.1" },
-    "data-models": { "water-heater": "0.2" }
+    "capabilities": { "info": "0.1", "meter": "0.1", "connection": "0.1", "soc": "0.1", "status": "0.1", "flex": "0.1" },
+    "data-models": { "water-heater": "0.3", "proxy": "0.1" }
   },
-  "notes": "CTA-2045 (EcoPort) UCM -> eBus water-heater bridge. Publishes a bridge root (energy.ebus.device.bridge, capabilities info + connection) and a proxied water-heater child (energy.ebus.device.water-heater). The child also publishes soc and status nodes (energy.ebus.capability.soc / .status); those are defined as roles within the water-heater data model (0.2) and have no standalone versioned capability catalog yet, so they are not pinned separately here. flex reconciled to the post-rename capability at this commit (was dr); flex/request $format JSONSchema validation requires ebus-sdk[validation]."
+  "notes": "CTA-2045 (EcoPort) UCM -> eBus water-heater bridge. Models the UCM as an energy.ebus.device.bridge (proxy.md) carrying info + connection, with a proxied energy.ebus.device.water-heater child (named {bridge-id}-wh01) carrying info, meter, soc, flex, and status. soc and status are now pinned to their standalone catalogs (canonicalized upstream in SPEC-mya; previously data-model-only roles). Three reported properties whose CTA-2045 source is a determinate value set use enum matching the catalogs (status/fault-state OK|FAULT|UNKNOWN, connection/feeds-device-status OK|LOST|DEGRADED, info/fuel-type ELECTRIC|GAS|HEAT_PUMP|HYBRID|OTHER); the datatype-vs-source-determinacy principle is tracked in spec SPEC-8iq. connection/last-seen is a proxy-local UCM liveness heartbeat, not a connection-catalog property. flex/request advertises its control surface (mode/intensity/duration/cause/target-percentage) as a strict $format JSONSchema and validates inbound /set against it, requiring ebus-sdk[validation]."
 }

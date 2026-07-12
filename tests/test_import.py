@@ -31,6 +31,21 @@ def test_specs_are_well_formed():
     opt_out = next(s for s in specs if s.capability == "flex" and s.prop_id == "opt-out")
     assert opt_out.format == "NONE,LOCAL,GRID,ALL"
 
+    # Reported properties whose CTA-2045 source is a determinate value set are
+    # enums carrying that set (not bare strings), matching the eBus catalogs.
+    from ebus_sdk import PropertyDatatype
+
+    all_specs = [*mapping.BRIDGE_SPECS, *specs]
+    enum_formats = {
+        ("status", "fault-state"): "OK,FAULT,UNKNOWN",
+        ("connection", "feeds-device-status"): "OK,LOST,DEGRADED",
+        ("info", "fuel-type"): "ELECTRIC,GAS,HEAT_PUMP,HYBRID,OTHER",
+    }
+    for (cap, pid), fmt in enum_formats.items():
+        spec = next(s for s in all_specs if s.capability == cap and s.prop_id == pid)
+        assert spec.datatype == PropertyDatatype.ENUM, f"{cap}/{pid} should be an enum"
+        assert spec.format == fmt
+
 
 def test_unknown_backend_kind_raises():
     import pytest

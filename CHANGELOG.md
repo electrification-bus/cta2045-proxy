@@ -2,6 +2,13 @@
 
 All notable changes to `cta2045-proxy` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Three reported properties are now published as Homie `enum` (were `string`), each advertising its allowed value set in `$format`: `status/fault-state` (`OK` / `FAULT` / `UNKNOWN`), `connection/feeds-device-status` (`OK` / `LOST` / `DEGRADED`), and `info/fuel-type` (`ELECTRIC` / `GAS` / `HEAT_PUMP` / `HYBRID` / `OTHER`). Each has a determinate value set at its CTA-2045 source (fault derived from `OperationalState`, a bounded link-health assessment, and the `GetInformationReply` device-type respectively), so an enum is the honest datatype and matches the eBus catalogs. Consumers that read `$format` now see the constrained value list for these properties.
+- Synced the `.ebus-spec.json` provenance lockfile to specification `058eba9` (2026-07-12): framework `0.5` → `0.7`, `water-heater` `0.2` → `0.3`, and added pins for the newly canonicalized `soc` and `status` capability catalogs and the `proxy` data-model (the bridge). No drift outstanding.
+
 ## [0.2.0] - 2026-07-11
 
 ### Changed

@@ -41,7 +41,7 @@ BRIDGE_SPECS: list[PropertySpec] = [
     PropertySpec("info", "firmware-version", PropertyDatatype.STRING),
     PropertySpec("connection", "feeds-device-id", PropertyDatatype.STRING),
     PropertySpec("connection", "feeds-device-type", PropertyDatatype.STRING),
-    PropertySpec("connection", "feeds-device-status", PropertyDatatype.STRING),
+    PropertySpec("connection", "feeds-device-status", PropertyDatatype.ENUM, format="OK,LOST,DEGRADED"),
     # last-seen: the UCM's own report timestamp (from the SkyCentrics /data "t"
     # field), as an ISO-8601 UTC datetime. Not part of the eBus data model; a
     # liveness/freshness heartbeat, updated on every message the UCM sends.
@@ -87,7 +87,7 @@ FLEX_REQUEST_FORMAT: str = json.dumps(FLEX_REQUEST_SCHEMA, separators=(",", ":")
 def water_heater_specs(on_flex_request_set: Callable) -> list[PropertySpec]:
     """PropertySpecs for the water-heater child, with flex/request bound to its setter."""
     return [
-        PropertySpec("info", "fuel-type", PropertyDatatype.STRING),
+        PropertySpec("info", "fuel-type", PropertyDatatype.ENUM, format="ELECTRIC,GAS,HEAT_PUMP,HYBRID,OTHER"),
         PropertySpec("meter", "active-power", PropertyDatatype.FLOAT, Unit.WATT),
         PropertySpec("meter", "imported-energy", PropertyDatatype.FLOAT, Unit.WATT_HOUR),
         PropertySpec("soc", "soe", PropertyDatatype.FLOAT, Unit.WATT_HOUR),
@@ -112,7 +112,7 @@ def water_heater_specs(on_flex_request_set: Callable) -> list[PropertySpec]:
             entity_setter=on_flex_request_set,
         ),
         PropertySpec("flex", "active-request", PropertyDatatype.JSON),
-        PropertySpec("status", "fault-state", PropertyDatatype.STRING),
+        PropertySpec("status", "fault-state", PropertyDatatype.ENUM, format="OK,FAULT,UNKNOWN"),
     ]
 
 
